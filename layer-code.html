@@ -1,0 +1,170 @@
+<html>
+<head>
+<title>info.php</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.ln { color: rgb(0,0,0); font-weight: normal; font-style: normal; }
+.s0 { color: rgb(0,0,0); }
+</style>
+</head>
+<BODY BGCOLOR="#ffffff">
+<TABLE CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#C0C0C0" >
+<TR><TD><CENTER>
+<FONT FACE="Arial, Helvetica" COLOR="#000000">
+info.php</FONT>
+</center></TD></TR></TABLE>
+<pre>
+<span class="s0">&lt;?php 
+本规范由璩雷初步制定，Server端架构组一起优化完善。大家有建议或者意见请与架构组讨论通过后再统一写入规范执行。 
+'''规范不一定是最好最正确，但是大家是一个团队，统一更重要，所以请大家务必执行，按照规范执行编码。''' 
+---- 
+ 
+* protected下分层结构和说明： 
+ 
+  ├── controllers 控制器, 调用Business层、Service层实现组合业务逻辑，禁止调用Model层。接收客户端参数，组装数据输出给客户端。 
+  │   ├── doctor 
+  │   ├── hospital 
+  │   └── yuehui 
+  ├── service   服务层：此层是加在Controller和Business之间的一层，此层调用Business，不要调用Model，如果此层只供Controller调用，那么可以接收客户端请求参数。此层可以理解为跟Controller层一样，但是更偏向业务逻辑一些，Controller更偏向显示一些，当业务逻辑相对比较复杂的时候可以考虑加入Service层，业务相对简单可以省去Service层。 
+  │ ├── Doctor 
+  │ ├── Hospital 
+  │ └── Yuehui 
+  ├── base 实体、逻辑 
+  │   ├── business  基础业务逻辑层：封装基础的业务逻辑，一个Business可以调用多个Model，但是只能调用本业务模块的Model，不能夸业务模块调用Model（比如商品的Business不能调用案例帖子的Model，案例帖子的Business也不能调用商品的Model）。此层禁止接收客户端参数。缓存都做在此层。发送MQ消息也在此层。 
+  │   │   ├── Doctor 
+  │   │   ├── Hospital 
+  │   │   ├── Order 
+  │   │   ├── PostCalendar 
+  │   │   ├── Product 
+  │   │   └── User 
+  │   └── models 数据访问层：只提供本Model对应的表操作（修改、写入、查询），禁止操作其他表，不要加入业务逻辑。此层禁止接收客户端参数。 
+  │       ├── Kr 
+  │       ├── Main 
+  │       ├── Passport 
+  │       ├── Sphinx 
+  │       └── Tagbbs 
+  ├── business 不再新加代码，将来废弃。 
+  │   ├── Doctor 
+  │   ├── Hospital 
+  │   ├── Order 
+  │   ├── Product 
+  │   └── User 
+  ├── commands 一些服务端定时或者常驻命令。 
+  │   ├── MQ 消息队列 
+  │   │   └── Consumer  消费者程序，消费消息,清理缓存以及其他逻辑, 比如发短信、注册后发私信等。 
+  │   │       ├── Doctor   按照业务划分的消费消息的目录 
+  │   │       ├── Hospital 
+  │   │       ├── Order 
+  │   │       ├── Passport 
+  │   │       ├── PostCalendar 
+  │   │       ├── Product 
+  │   │       ├── Sphinx 
+  │   │       └── User 
+  │   ├── Order 
+  │   ├── Post 
+  │   ├── Product 
+  │   └── User 
+  ├── components  组件：一些封装好的方法，比如帖子卡片等。 一般情况不要在里面添加代码。 
+  ├── config  配置文件，测试环境和线上环境配置。 
+  └── library    基础公共类库，自成一体，绝对独立，供其他任何地方调用，自己不调用其他地方（绝对不要调用Business,Model） 
+         └── ownLibs 
+             ├── baidu 
+             ├── cache 
+             ├── cookie 
+             ├── mq 
+             ├── sms 
+             ├── util 
+             ├── weixinpay 
+             └── yimei 
+ 
+* 各层调用关系见下图 
+ [[文件:分层关系.jpg]] 
+ 
+* 统一规范 
+ 1. 实例化Model的时候变量命名都_model（私有）或者model开头，比如 private $_modelProduct; $modelProduct。 
+ 2. 实例化Business的时候变量命名都以_biz(私有）或者biz开头，比如 private $_bizProduct; $bizProduct。 
+ 3. Model实例化统一使用方法M(), Business统一使用B(), Service统一使用S()。 
+ 4. 除了Model，任何其他地方不能进行数据库操作。 
+ 5. 方法的访问级别定义不要随意写（咱们乱写的太多了），该private的不要public。 
+ 
+* Model层规范 
+ 1.  一个表对应一个Model。 
+ 2. Model只能对所对应的数据库中的本表进行操作，禁止操作其他表。 
+ 3. Model只提供最基础的插入、修改、查询方法，不要加入业务逻辑。 
+ 4. 查询要特别考虑性能问题，尽量使用到索引。 
+ 5. 如果数据库的某个字段是固定的几个值（枚举），需要在Model里面用常量定义出来。比如：const MALE = 1；const FEMALE = 0，使用的地方要使用常量判断，不要直接写数字。 
+ 6. 添加查询条件的时候使用带参数的方式： 
+      $objCommand-&gt;addCondition(&quot;pid = :pid&quot;); 
+      $objCommand-&gt;params = array(&quot;:pid&quot;=&gt;$pid); 
+      避免$objCommand-&gt;addCondition(&quot;pid = &quot; . $pid);这种方式很容易引起sql语句漏洞。 
+ 7. 此层禁止获取客户端参数(GET,POST等到服务端的，包括框架封装的获取客户端参数的方法)。 
+ 8. 不要再通过在方法传入数据库连接参数。 
+ 
+* Business层规范 
+ 1. 一个Business可以调用多个Model，但是只能调用本业务的Model，不能夸业务调用Model（比如商品的Business不能调用案例帖子的Model，案例帖子的Business也不能调用商品的Model）。 
+ 2. 此层禁止获取客户端参数(GET,POST等到服务端的，包括框架封装的获取客户端参数的方法)。 
+ 3. 缓存：都做在此层。 
+     缓存不要随意加，加缓存需要考虑这几点： 
+     a. 缓存用的是服务器内存，资源宝贵，只有对效率要求高的关键地方才能加。 
+     b. Cache的Key要统一定义在library\ownLibs\cache下，以便将来做统一管理。 
+     c. 按照id缓存数据要做到实时，即要保持缓存的数据跟数据库数据同步更新。如何保持？一是数据更新的时候删除或者更新缓存，二是数据更新的时候发送MQ消息，Consume去更新或者删除缓存。 
+     d. 一些列表缓存（多条数据糅合在一起的），这种缓存很难维护更新，所以尽量少用，尤其是对数据实时性要求高的地方。 
+     e. 缓存的过期时间：如果能做到实时更新，可以设置长一点，但是也不要设置为永久。万一更换key，如果没有手动删除缓存，那么内存将被长期占用。 
+ 4. 发送MQ消息也在此层。 
+ 5. 各个Business之间尽量不要相互调用，但是目前咱们在所难免。 
+ 6. 不要在Business改变数组key名称，以及处理与现实相关的逻辑。  
+ 
+* Service层规范 
+ 1. 调用Business层，禁止调用Model层方法操作数据库。 
+ 2. 禁止操作缓存。 
+ 3. 禁止发送消息。 
+ 
+* Controller层规范 
+ 1. 调用Business层、Service层，禁止调用Model层方法操作数据库。 
+ 2. 如果是api接口，在Controller层要对返回给客户端的数据做清理，只返回客户端用到的必要字段。 
+ 3. 禁止操作缓存。 
+ 4. 禁止发送消息。 
+ 
+* Library规范 
+  基础公共类库，自成一体，绝对独立，供其他任何地方调用，自己不调用其他地方（绝对不要调用Business,Model） 
+ 
+* 关于Sphinx 
+  调用Sphinx的地方，尽量只返回必要的字段，通常只需要key字段，例如sphinx/ProductMode下部分可以这样修改： $this-&gt;field('*') 改为 $this-&gt;field(&quot;ppid&quot;); 
+ 
+* 方法应该由那个类实现，遵循职责分配原则：一个方法由哪个类（Business）完成，应该遵循哪个类最能提供完成该功能需要的数据，那么就由哪个类（Business）来完成。比如取得一个医生的案例，应该是由医生DoctorBusiness来完成还是由案例GroupBusiness来完成呢？显然GroupBusiness更能提供案例数据，所有应当由GroupBusiness提供取得一个医生的案例的方法。 
+ 
+ 
+* 开发人员职责分配原则：在开发的时候，如果需要使用到其他模块的方法，如果不是很清晰能直接调用其他模块已经提供的方法，那么应当找到其他模块的开发人员咨询，如果没有相应的方法，应该给其他模块的开发人员提需求要求提供方法。自己实现的坏处是你没人家了解逻辑，也可能放的位置不对，代码不好维护。（发现很多地方都是在自己模块的business下调用其他模块model实现一些逻辑）。由于咱们项目还未实现rpc，各个业务没有拆分成多个项目，现在都是混在一个项目里，所以咱们只能从人员上遵循这种原则。理想状况是各个业务项目独立，非本项目开发人员代码都看不到，自然不会去改，只能要求业务方开发人员提供相应的方法接口。 
+ 
+ 
+* 基础逻辑一定要在Business做好封装，而不要在各个站点的Service和Controller去实现。因为Business是提供给多站点调用的，这样才能做到不到处拷贝代码实现相同逻辑。比如取得医生日历，现在m站有自己的实现，api也有自己的实现，都是在service下实现的，这样极其不合理。 
+ 
+ 
+* Controller 和 Service 实现的是参数处理，调用Business处理和取得数据，并且把数据结果拼装组合后返回给客户端。 
+ 
+ 
+* Business层、Model层不要做对显示层相关的处理，比如改变字段名称、改变字段的值（比如给title做截断）。 
+ 
+ 
+* 其他需要注意的地方 
+ 
+ 能批量一次取得数据，就不要分多次取。例如之前医生详情页，统计一个医生在各个一级分类下的案例数采用的是从数据库取出这个医生做过的一级分类，然后再一个分类一个分类的去调用sphinx查询一条案例出来，取得一个total值作为一个分类的案例数量，后来直接改成了一次从sphinx groupby统计出一个医生所有的一级分类案例数。 
+ 
+ 方法在不了解的情况下不要随意调用，尤其是循环多次调用，这是非常有可能影响性能的。 
+ 
+ 不要以小调大。有的方法可能干了很多事情，返回了很多数据，而你却只要这里面的一丁点数据，那么调用这个方法其实就是不值当的，也是不合理的。比如之前有发现为了取得一个医生的名称，调用了取得医生信息的方法getDoctorInfoById，这个方法还获取了医生的项目、咨询排行相关信息、预约数、一句话简介、口碑、职务、资质、擅长、关联信息、头像、相册、医院等，当然现在可以通过getSimpleDoctorInfoById($doctorId, ['name_cn'])获取了。 
+ 
+ 方法、变量的访问级别定义不要随意写，该private的不要public。private定义的方法要以下划线开头，比如private function _getUid(){}; private定义的变量也要下划线开头，比如private $_uid。 
+ 
+ 禁止在正式代码中使用exit，die。 
+ 
+ 不要重复拷贝代码，而要抽象出来封装复用。比如添加商品和编辑商品的代码未复用，添加商品在医院工作台和医生工作台各有一份，未复用，后台还有几个地方也有添加商品，也未复用。修改商品也是一样，医生工作台和医院工作台未复用，后台也有未复用。这样到处拷贝修改的代码维护起来非常困难。 
+ 
+ 代码里不要出现写死的用数字作为条件的判断，应该用常量替换数字。常量的命名要能提现出其实际意义，比如 const USER_NEW_KEY_TYPE_MOBILE = 3。 
+ 
+ 代码干净整洁、写好注释是基础，与智商能力无关，每个人都要做到。 
+ 
+ 传图片采用异步方式 
+</span></pre>
+</body>
+</html>
